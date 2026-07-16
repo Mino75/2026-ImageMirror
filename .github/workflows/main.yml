@@ -1,0 +1,34 @@
+name: Mirror Docker Images
+
+on:
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
+
+      - name: Mirror images
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r image; do
+            # Skip empty lines and comments
+            [[ -z "$image" || "$image" =~ ^# ]] && continue
+
+            destination="${DOCKERHUB_USERNAME}/${image#*/}"
+
+            echo "Copying $image -> $destination"
+            crane copy "$image" "$destination"
+          done < images.txt
