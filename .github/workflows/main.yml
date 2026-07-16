@@ -3,6 +3,9 @@ name: Mirror Docker Images
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   mirror:
     runs-on: ubuntu-latest
@@ -18,9 +21,6 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Install crane
-        uses: imjasonh/setup-crane@v0.4
-
       - name: Mirror images
         shell: bash
         env:
@@ -28,37 +28,38 @@ jobs:
         run: |
           set -euo pipefail
 
-          IMAGES_FILE="${GITHUB_WORKSPACE}/images.txt"
+          images_file="${GITHUB_WORKSPACE}/images.txt"
 
-          if [[ ! -f "${IMAGES_FILE}" ]]; then
+          if [[ ! -f "${images_file}" ]]; then
             echo "::error::images.txt was not found at the repository root"
             exit 1
           fi
 
+          docker buildx version
+
           while IFS= read -r image || [[ -n "${image}" ]]; do
-            # Remove Windows carriage returns
             image="${image%$'\r'}"
 
-            # Remove leading and trailing spaces
-            image="$(echo "${image}" | xargs)"
+            # delete spaces
+            image="${image#"${image%%[![:space:]]*}"}"
+            image="${image%"${image##*[![:space:]]}"}"
 
-            # Skip empty lines and comments
             [[ -z "${image}" || "${image}" == \#* ]] && continue
 
-            # Official Docker Hub images use the implicit "library" namespace
             if [[ "${image}" == */* ]]; then
               source="docker.io/${image}"
             else
               source="docker.io/library/${image}"
             fi
 
-            # Keep only the repository name and tag for the destination
             repository_and_tag="${image##*/}"
             destination="docker.io/${DOCKERHUB_USERNAME}/${repository_and_tag}"
 
             echo "Copying ${source} -> ${destination}"
 
-            crane copy \
-              "${source}" \
-              "${destination}"
-          done < "${IMAGES_FILE}"
+            docker buildx imagetools create \
+              --tag "${destination}" \
+              "${source}"
+
+            docker buildx imagetools inspect "${destination}"
+          done < "${images_file}"
