@@ -3,3 +3,5 @@ bitnamilegacy/wordpress:6.8.0
 
 # MariaDB
 mariadb:10.6.4-focal
+
+traefik:v1.6.6-alpine
