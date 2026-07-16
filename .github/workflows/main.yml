@@ -8,6 +8,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -23,12 +26,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          while IFS= read -r image; do
-            # Skip empty lines and comments
-            [[ -z "$image" || "$image" =~ ^# ]] && continue
+          test -f "$GITHUB_WORKSPACE/images.txt" || {
+            echo "::error::images.txt was not found at the repository root"
+            exit 1
+          }
 
-            destination="${DOCKERHUB_USERNAME}/${image#*/}"
+          while IFS= read -r image || [[ -n "$image" ]]; do
+            image="${image%$'\r'}"
 
-            echo "Copying $image -> $destination"
-            crane copy "$image" "$destination"
-          done < images.txt
+            [[ -z "$image" || "$image" == \#* ]] && continue
+
+            destination="docker.io/${DOCKERHUB_USERNAME}/${image#*/}"
+
+            echo "Copying docker.io/${image} -> ${destination}"
+
+            crane copy \
+              "docker.io/${image}" \
+              "${destination}"
+          done < "$GITHUB_WORKSPACE/images.txt"
