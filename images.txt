@@ -11,4 +11,5 @@ nextcloud:24.0-apache
 traefik:v1.6.6-alpine
 
 linuxserver/grav:1.7.44
-ghcr.io/umami-software/umami:postgresql-latest
+ghcr.io/umami-software/umami:3.2
+# ghcr.io/umami-software/umami:postgresql-latest
