@@ -4,6 +4,9 @@ bitnamilegacy/wordpress:6.4.2
 
 # MariaDB
 mariadb:10.6.4-focal
+mariadb:10.7-focal
+
+nextcloud:24.0-apache
 
 traefik:v1.6.6-alpine
 
