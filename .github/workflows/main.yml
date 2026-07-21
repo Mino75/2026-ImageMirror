@@ -26,40 +26,103 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
 
           images_file="${GITHUB_WORKSPACE}/images.txt"
 
           if [[ ! -f "${images_file}" ]]; then
-            echo "::error::images.txt was not found at the repository root"
+            echo "::error::images.txt not found"
             exit 1
           fi
 
           docker buildx version
 
-          while IFS= read -r image || [[ -n "${image}" ]]; do
+          mirrored=0
+          failed=0
+
+          while IFS= read -r image || [[ -n "$image" ]]; do
             image="${image%$'\r'}"
 
-            # delete spaces
+            # Trim whitespace
             image="${image#"${image%%[![:space:]]*}"}"
             image="${image%"${image##*[![:space:]]}"}"
 
-            [[ -z "${image}" || "${image}" == \#* ]] && continue
+            # Skip comments and blank lines
+            [[ -z "$image" || "$image" == \#* ]] && continue
 
-            if [[ "${image}" == */* ]]; then
-              source="docker.io/${image}"
-            else
+            first="${image%%/*}"
+
+            #
+            # Resolve source image
+            #
+            if [[ "$image" != */* ]]; then
+              # nginx:latest
+              registry="docker.io"
               source="docker.io/library/${image}"
+              repo_path="library/${image}"
+
+            elif [[ "$first" == *.* || "$first" == *:* || "$first" == "localhost" ]]; then
+              # ghcr.io/org/image:tag
+              # quay.io/org/image:tag
+              # registry.k8s.io/image:tag
+              registry="$first"
+              source="$image"
+              repo_path="${image#*/}"
+
+            else
+              # bitnami/wordpress:latest
+              registry="docker.io"
+              source="docker.io/${image}"
+              repo_path="$image"
             fi
 
-            repository_and_tag="${image##*/}"
-            destination="docker.io/${DOCKERHUB_USERNAME}/${repository_and_tag}"
+            #
+            # Split repository and tag
+            #
+            tag="latest"
 
-            echo "Copying ${source} -> ${destination}"
+            if [[ "$repo_path" == *@* ]]; then
+              repository="${repo_path%%@*}"
+              digest="${repo_path#*@}"
+              tag="sha256-${digest#sha256:}"
+              tag="${tag:0:20}"
+            elif [[ "${repo_path##*/}" == *:* ]]; then
+              tag="${repo_path##*:}"
+              repository="${repo_path%:*}"
+            else
+              repository="$repo_path"
+            fi
 
-            docker buildx imagetools create \
-              --tag "${destination}" \
-              "${source}"
+            #
+            # Preserve provider + full repository path
+            #
+            destination_repo="${registry}--${repository}"
+            destination_repo="${destination_repo//\//--}"
+            destination_repo="${destination_repo,,}"
 
-            docker buildx imagetools inspect "${destination}"
+            destination="docker.io/${DOCKERHUB_USERNAME}/${destination_repo}:${tag}"
+
+            echo
+            echo "Source      : ${source}"
+            echo "Destination : ${destination}"
+
+            if docker buildx imagetools create \
+                --tag "${destination}" \
+                "${source}"; then
+
+              docker buildx imagetools inspect "${destination}"
+              ((mirrored++))
+            else
+              echo "::error::Failed: ${source}"
+              ((failed++))
+            fi
+
           done < "${images_file}"
+
+          echo
+          echo "Mirrored: ${mirrored}"
+          echo "Failed  : ${failed}"
+
+          if (( failed > 0 )); then
+            exit 1
+          fi
