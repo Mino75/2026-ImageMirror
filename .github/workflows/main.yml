@@ -35,93 +35,110 @@ jobs:
             exit 1
           fi
 
+          if [[ -z "${DOCKERHUB_USERNAME}" ]]; then
+            echo "::error::DOCKER_USERNAME is empty"
+            exit 1
+          fi
+
           docker buildx version
 
           mirrored=0
           failed=0
 
-          while IFS= read -r image || [[ -n "$image" ]]; do
+          while IFS= read -r image || [[ -n "${image}" ]]; do
             image="${image%$'\r'}"
 
-            # Trim whitespace
+            # Trim leading whitespace
             image="${image#"${image%%[![:space:]]*}"}"
+
+            # Trim trailing whitespace
             image="${image%"${image##*[![:space:]]}"}"
 
-            # Skip comments and blank lines
-            [[ -z "$image" || "$image" == \#* ]] && continue
+            # Skip empty lines and comments
+            [[ -z "${image}" || "${image}" == \#* ]] && continue
 
-            first="${image%%/*}"
+            first_component="${image%%/*}"
 
-            #
-            # Resolve source image
-            #
-            if [[ "$image" != */* ]]; then
-              # nginx:latest
+            # Resolve source registry and repository path
+            if [[ "${image}" != */* ]]; then
               registry="docker.io"
               source="docker.io/library/${image}"
-              repo_path="library/${image}"
+              repository_reference="library/${image}"
 
-            elif [[ "$first" == *.* || "$first" == *:* || "$first" == "localhost" ]]; then
-              # ghcr.io/org/image:tag
-              # quay.io/org/image:tag
-              # registry.k8s.io/image:tag
-              registry="$first"
-              source="$image"
-              repo_path="${image#*/}"
+            elif [[ "${first_component}" == *.* ||
+                    "${first_component}" == *:* ||
+                    "${first_component}" == "localhost" ]]; then
+              registry="${first_component}"
+              source="${image}"
+              repository_reference="${image#*/}"
 
             else
-              # bitnami/wordpress:latest
               registry="docker.io"
               source="docker.io/${image}"
-              repo_path="$image"
+              repository_reference="${image}"
             fi
 
-            #
-            # Split repository and tag
-            #
+            # Extract repository and tag
             tag="latest"
 
-            if [[ "$repo_path" == *@* ]]; then
-              repository="${repo_path%%@*}"
-              digest="${repo_path#*@}"
-              tag="sha256-${digest#sha256:}"
-              tag="${tag:0:20}"
-            elif [[ "${repo_path##*/}" == *:* ]]; then
-              tag="${repo_path##*:}"
-              repository="${repo_path%:*}"
+            if [[ "${repository_reference}" == *@* ]]; then
+              repository="${repository_reference%%@*}"
+              digest="${repository_reference#*@}"
+              digest_value="${digest#sha256:}"
+              tag="digest-${digest_value:0:12}"
+
+            elif [[ "${repository_reference##*/}" == *:* ]]; then
+              repository="${repository_reference%:*}"
+              tag="${repository_reference##*:}"
+
             else
-              repository="$repo_path"
+              repository="${repository_reference}"
             fi
 
-            #
-            # Preserve provider + full repository path
-            #
-            destination_repo="${registry}--${repository}"
-            destination_repo="${destination_repo//\//--}"
-            destination_repo="${destination_repo,,}"
+            # Encode registry and full repository path into one Docker Hub
+            # repository name because Docker Hub supports one namespace level.
+            destination_repository="${registry}--${repository}"
+            destination_repository="${destination_repository//\//--}"
+            destination_repository="${destination_repository,,}"
 
-            destination="docker.io/${DOCKERHUB_USERNAME}/${destination_repo}:${tag}"
+            # Replace unsupported characters
+            destination_repository="$(
+              printf '%s' "${destination_repository}" |
+                sed -E \
+                  -e 's/[^a-z0-9._-]+/-/g' \
+                  -e 's/-{3,}/--/g' \
+                  -e 's/^[._-]+//' \
+                  -e 's/[._-]+$//'
+            )"
+
+            if [[ -z "${destination_repository}" ]]; then
+              echo "::error::Invalid destination generated for ${source}"
+              ((failed += 1))
+              continue
+            fi
+
+            destination="docker.io/${DOCKERHUB_USERNAME}/${destination_repository}:${tag}"
 
             echo
             echo "Source      : ${source}"
             echo "Destination : ${destination}"
 
             if docker buildx imagetools create \
-                --tag "${destination}" \
-                "${source}"; then
+              --tag "${destination}" \
+              "${source}"; then
 
               docker buildx imagetools inspect "${destination}"
-              ((mirrored++))
+              ((mirrored += 1))
             else
-              echo "::error::Failed: ${source}"
-              ((failed++))
+              echo "::error::Failed to mirror ${source}"
+              ((failed += 1))
             fi
 
           done < "${images_file}"
 
           echo
           echo "Mirrored: ${mirrored}"
-          echo "Failed  : ${failed}"
+          echo "Failed:   ${failed}"
 
           if (( failed > 0 )); then
             exit 1
