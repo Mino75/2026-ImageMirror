@@ -17,7 +17,7 @@ linuxserver/grav:1.7.44
 ghcr.io/umami-software/umami:3.2
 ghcr.io/umami-software/umami:postgresql-latest
 
-ghcr.io/tecnativa/docker-socket-proxy:0.4.2
+ghcr.io/tecnativa/docker-socket-proxy:v0.4.2
 
 swaggerapi/swagger-ui:v4.15.5
 
