@@ -14,8 +14,8 @@ traefik:v1.6.6-alpine
 netdata/netdata:v1.47.2
 
 linuxserver/grav:1.7.44
-# ghcr.io/umami-software/umami:3.2
-# ghcr.io/umami-software/umami:postgresql-latest
+ghcr.io/umami-software/umami:3.2
+ghcr.io/umami-software/umami:postgresql-latest
 
 swaggerapi/swagger-ui:v4.15.5
 
