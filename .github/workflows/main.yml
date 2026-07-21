@@ -42,12 +42,11 @@ jobs:
 
           docker buildx version
 
-          updated=0
-          skipped=0
+          mirrored=0
           failed=0
 
           #
-          # Run a command again when Docker Hub returns HTTP 429.
+          # Retry a command when a registry returns HTTP 429.
           #
           retry_on_rate_limit() {
             local max_attempts=5
@@ -59,16 +58,14 @@ jobs:
             output_file="$(mktemp)"
 
             while true; do
-              if "$@" 2>"${output_file}"; then
+              if "$@" > >(tee "${output_file}") 2> >(tee -a "${output_file}" >&2); then
                 rm -f "${output_file}"
                 return 0
               else
                 status=$?
               fi
 
-              cat "${output_file}" >&2
-
-              if ! grep -qE '429|Too Many Requests' "${output_file}"; then
+              if ! grep -qiE '429|Too Many Requests' "${output_file}"; then
                 rm -f "${output_file}"
                 return "${status}"
               fi
@@ -79,7 +76,7 @@ jobs:
                 return "${status}"
               fi
 
-              echo "::warning::Docker Hub rate limit encountered. Retrying in ${delay} seconds..." >&2
+              echo "::warning::Registry rate limit encountered. Retrying in ${delay} seconds..." >&2
 
               sleep "${delay}"
 
@@ -91,21 +88,15 @@ jobs:
           }
 
           #
-          # Return the top-level manifest digest.
-          #
-          inspect_digest() {
-            docker buildx imagetools inspect \
-              "$1" \
-              --format '{{.Manifest.Digest}}'
-          }
-
-          #
           # Copy a multi-platform image to Docker Hub.
           #
           copy_image() {
+            local source="$1"
+            local destination="$2"
+
             docker buildx imagetools create \
-              --tag "$2" \
-              "$1"
+              --tag "${destination}" \
+              "${source}"
           }
 
           while IFS= read -r image || [[ -n "${image}" ]]; do
@@ -142,7 +133,7 @@ jobs:
             fi
 
             #
-            # Extract the repository and tag.
+            # Extract the repository and destination tag.
             #
             tag="latest"
 
@@ -161,7 +152,7 @@ jobs:
             fi
 
             #
-            # Encode the registry and full repository path into a valid
+            # Encode the registry and full repository path into one valid
             # Docker Hub repository name.
             #
             destination_repository="${registry}--${repository}"
@@ -173,73 +164,31 @@ jobs:
             echo
             echo "Source      : ${source}"
             echo "Destination : ${destination}"
+            echo "Mirroring image..."
 
             #
-            # Read the source digest.
-            #
-            if ! source_digest="$(
-              retry_on_rate_limit inspect_digest "${source}"
-            )"; then
-              echo "::error::Unable to inspect source image ${source}"
-              failed=$((failed + 1))
-              sleep 10
-              continue
-            fi
-
-            #
-            # Read the destination digest.
-            #
-            # Failure is allowed because the destination may not exist yet.
-            # A 429 response is retried before treating the destination as absent.
-            #
-            destination_digest="$(
-              retry_on_rate_limit inspect_digest "${destination}" \
-                2>/dev/null || true
-            )"
-
-            echo "Source digest      : ${source_digest}"
-            echo "Destination digest : ${destination_digest:-not found}"
-
-            #
-            # Skip the copy when the complete multi-platform manifest
-            # already matches.
-            #
-            if [[ -n "${destination_digest}" &&
-                  "${source_digest}" == "${destination_digest}" ]]; then
-              echo "Already up to date. Skipping."
-              skipped=$((skipped + 1))
-
-              sleep 5
-              continue
-            fi
-
-            echo "Source changed or destination does not exist."
-            echo "Updating image..."
-
-            #
-            # Copy the image and retry if Docker Hub returns HTTP 429.
+            # Create or update the destination manifest.
+            # Existing blobs are reused by the registry.
             #
             if retry_on_rate_limit \
               copy_image "${source}" "${destination}"; then
-              echo "Updated: ${destination}"
-              updated=$((updated + 1))
+              echo "Mirrored: ${destination}"
+              mirrored=$((mirrored + 1))
             else
               echo "::error::Failed to mirror ${source}"
               failed=$((failed + 1))
             fi
 
             #
-            # Avoid sending a large burst of requests when processing
-            # consecutive multi-platform images.
+            # Reduce request bursts when processing consecutive images.
             #
             sleep 10
 
           done < "${images_file}"
 
           echo
-          echo "Updated: ${updated}"
-          echo "Skipped: ${skipped}"
-          echo "Failed:  ${failed}"
+          echo "Mirrored: ${mirrored}"
+          echo "Failed:   ${failed}"
 
           if (( failed > 0 )); then
             exit 1
