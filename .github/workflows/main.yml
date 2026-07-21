@@ -47,93 +47,113 @@ jobs:
 
           while IFS= read -r image || [[ -n "${image}" ]]; do
             image="${image%$'\r'}"
-
-            # Trim leading whitespace
+          
+            # Trim whitespace
             image="${image#"${image%%[![:space:]]*}"}"
-
-            # Trim trailing whitespace
             image="${image%"${image##*[![:space:]]}"}"
-
-            # Skip empty lines and comments
+          
+            # Skip comments and blank lines
             [[ -z "${image}" || "${image}" == \#* ]] && continue
-
+          
             first_component="${image%%/*}"
-
-            # Resolve source registry and repository path
+          
+            #
+            # Resolve source registry
+            #
             if [[ "${image}" != */* ]]; then
               registry="docker.io"
               source="docker.io/library/${image}"
               repository_reference="library/${image}"
-
+          
             elif [[ "${first_component}" == *.* ||
                     "${first_component}" == *:* ||
                     "${first_component}" == "localhost" ]]; then
               registry="${first_component}"
               source="${image}"
               repository_reference="${image#*/}"
-
+          
             else
               registry="docker.io"
               source="docker.io/${image}"
               repository_reference="${image}"
             fi
-
+          
+            #
             # Extract repository and tag
+            #
             tag="latest"
-
+          
             if [[ "${repository_reference}" == *@* ]]; then
               repository="${repository_reference%%@*}"
               digest="${repository_reference#*@}"
               digest_value="${digest#sha256:}"
               tag="digest-${digest_value:0:12}"
-
+          
             elif [[ "${repository_reference##*/}" == *:* ]]; then
               repository="${repository_reference%:*}"
               tag="${repository_reference##*:}"
-
+          
             else
               repository="${repository_reference}"
             fi
-
-            # Encode registry and full repository path into one Docker Hub
-            # repository name because Docker Hub supports one namespace level.
+          
+            #
+            # Preserve registry + full path
+            #
             destination_repository="${registry}--${repository}"
             destination_repository="${destination_repository//\//--}"
             destination_repository="${destination_repository,,}"
-
-            # Replace unsupported characters
-            destination_repository="$(
-              printf '%s' "${destination_repository}" |
-                sed -E \
-                  -e 's/[^a-z0-9._-]+/-/g' \
-                  -e 's/-{3,}/--/g' \
-                  -e 's/^[._-]+//' \
-                  -e 's/[._-]+$//'
-            )"
-
-            if [[ -z "${destination_repository}" ]]; then
-              echo "::error::Invalid destination generated for ${source}"
-              ((failed += 1))
-              continue
-            fi
-
+          
             destination="docker.io/${DOCKERHUB_USERNAME}/${destination_repository}:${tag}"
-
+          
             echo
             echo "Source      : ${source}"
             echo "Destination : ${destination}"
-
+          
+            #
+            # Read source digest
+            #
+            source_digest="$(
+              docker buildx imagetools inspect \
+                "${source}" \
+                --format '{{.Manifest.Digest}}'
+            )"
+          
+            #
+            # Read destination digest (may not exist)
+            #
+            destination_digest="$(
+              docker buildx imagetools inspect \
+                "${destination}" \
+                --format '{{.Manifest.Digest}}' \
+                2>/dev/null || true
+            )"
+          
+            #
+            # Skip if already mirrored
+            #
+            if [[ -n "${destination_digest}" &&
+                  "${source_digest}" == "${destination_digest}" ]]; then
+          
+              echo "✓ Already up-to-date (${source_digest})"
+              ((mirrored += 1))
+              continue
+            fi
+          
+            echo "Updating image..."
+          
             if docker buildx imagetools create \
-              --tag "${destination}" \
-              "${source}"; then
-
+                --tag "${destination}" \
+                "${source}"; then
+          
               docker buildx imagetools inspect "${destination}"
               ((mirrored += 1))
+          
             else
               echo "::error::Failed to mirror ${source}"
               ((failed += 1))
             fi
-
+          
           done < "${images_file}"
 
           echo
