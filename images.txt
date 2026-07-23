@@ -1,31 +1,32 @@
 
-bitnamilegacy/wordpress:6.8.0
-bitnamilegacy/wordpress:6.4.2
-
-mariadb:10.6.4-focal
-mariadb:10.7-focal
-
-postgres:11-alpine
-
-nextcloud:24.0-apache
-
-traefik:v1.6.6-alpine
-traefik:v3.7.6
-
-netdata/netdata:v1.47.2
-
-linuxserver/grav:1.7.44
-ghcr.io/umami-software/umami:3.2
-ghcr.io/umami-software/umami:postgresql-latest
-
 ghcr.io/tecnativa/docker-socket-proxy:v0.4.2
 
-swaggerapi/swagger-ui:v4.15.5
+#bitnamilegacy/wordpress:6.8.0
+#bitnamilegacy/wordpress:6.4.2
 
-ghost:5.78
+#mariadb:10.6.4-focal
+#mariadb:10.7-focal
 
-bitnamilegacy/mongodb:7.0
+#postgres:11-alpine
 
-mongo-express:1.0.2
+#nextcloud:24.0-apache
 
-n8nio/n8n:2.6.3
+#traefik:v1.6.6-alpine
+#traefik:v3.7.6
+
+#netdata/netdata:v1.47.2
+
+#linuxserver/grav:1.7.44
+#ghcr.io/umami-software/umami:3.2
+#ghcr.io/umami-software/umami:postgresql-latest
+
+
+#swaggerapi/swagger-ui:v4.15.5
+
+#ghost:5.78
+
+#bitnamilegacy/mongodb:7.0
+
+#mongo-express:1.0.2
+
+#n8nio/n8n:2.6.3
