@@ -20,6 +20,7 @@ ghcr.io/tecnativa/docker-socket-proxy:v0.4.2
 #ghcr.io/umami-software/umami:3.2
 #ghcr.io/umami-software/umami:postgresql-latest
 
+#ghcr.io/wg-easy/wg-easy:15
 
 #swaggerapi/swagger-ui:v4.15.5
 
